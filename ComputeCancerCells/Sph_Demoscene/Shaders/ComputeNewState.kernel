@@ -1,0 +1,145 @@
+#version 430 core
+
+layout(std430, binding = 0) buffer R
+{
+	vec4 Read[ ];
+};
+
+
+layout(std430, binding = 1) buffer W
+{
+	vec4 Write[ ];
+};
+
+layout (local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+
+uniform uint Width;
+uniform uint Height;
+
+const vec2 Healthy = vec2(0,1);
+const vec2 Cancer = vec2(1,0);
+const vec2 Medecine = vec2(1,1);
+const vec2 None = vec2(0,0);
+
+bool CountNeighbours(vec2 type, const uint x, const uint y, int min)
+{
+	int t = 8 - min + 1;
+	uint yw = 0;
+	yw = ((y - 1) * Width) + x - 1;
+	t -= int(Read[yw].xy != type);
+	if (t <= 0) return false;			
+	t -= int(Read[++yw].xy != type);
+	if (t <= 0) return false;
+	t -= int(Read[++yw].xy != type);
+	if (t <= 0) return false;
+	yw = ((y) * Width) + x - 1;
+	t -= int(Read[yw].xy != type);
+	if (t <= 0) return false;			
+	t -= int(Read[yw + 2].xy != type);
+	if (t <= 0) return false;
+	yw = ((y + 1) * Width) + x - 1;
+	t -= int(Read[yw].xy != type);
+	if (t <= 0) return false;			
+	t -= int(Read[++yw].xy != type);
+	if (t <= 0) return false;			
+	t -= int(Read[++yw].xy != type);
+	if (t <= 0) return false;			
+	return true;
+}
+
+
+bool HasNeighbour(vec2 type, uint x, uint y)
+{
+	uint yw = 0;
+
+	if (y > 0)
+	{
+		yw = ((y - 1) * Width) + x - 1;
+		if (x > 0 && Read[yw].xy == type)
+		return true;
+		if (Read[++yw].xy == type)
+		return true;
+		if (x < Width - 1 && Read[++yw].xy == type)
+		return true;
+	}
+	yw = ((y) * Width) + x - 1;
+	if (x > 0 && Read[yw].xy == type)
+	return true;
+	if (x < Width - 1 && Read[yw + 2].xy == type)
+	return true;
+	if (y < Height - 1)
+	{
+		yw = ((y + 1) * Width) + x - 1;
+		if (x > 0 && Read[yw].xy == type)
+		return true;
+		if (Read[++yw].xy == type)
+		return true;
+		if (x < Width - 1 && Read[++yw].xy == type)
+		return true;
+	}
+	return false;
+}
+
+void main()
+{
+	uint gid = gl_GlobalInvocationID.x;
+	uint x = gid % Width;
+	uint y = gid / Width;
+	uint index = gid;
+	vec2 r = Read[index].xy;
+
+	if (r == Healthy && !(y == 0 || y == Height - 1 || x == 0 || x == Width - 1) && CountNeighbours(Cancer, x, y, 6))
+	{
+		//++counter[Cancer];
+		Write[index].xy = Cancer;
+	}
+	// C -> H
+	else if (r == Cancer && !(y == 0 || y == Height - 1 || x == 0 || x == Width - 1) && CountNeighbours(Medecine, x, y, 6))
+	{
+		uint yw = 0;
+		yw = ((y - 1) * Width) + x - 1;
+		Write[yw].xy = Read[yw].xy == Medecine ? Healthy : Read[yw].xy;
+		//++counter[_write[yw]];
+		++yw;
+		Write[yw].xy = Read[yw].xy == Medecine ? Healthy : Read[yw].xy;
+		//++counter[_write[yw]];
+		++yw;
+		Write[yw].xy = Read[yw].xy == Medecine ? Healthy : Read[yw].xy;
+		//++counter[Write[yw]];
+		yw = ((y) * Width) + x - 1;
+
+		Write[yw].xy = Read[yw].xy == Medecine ? Healthy : Read[yw].xy;
+		//++counter[Write[yw].xy];
+
+		++yw;
+		Write[yw].xy = Healthy;
+		//++counter[_write[yw]];
+		
+		++yw;
+		Write[yw].xy = Read[yw].xy == Medecine ? Healthy : Read[yw].xy;
+		//++counter[_write[yw]];
+		
+		yw = ((y + 1)* Width) + x - 1;
+		
+		Write[yw].xy = Read[yw].xy == Medecine ? Healthy : Read[yw].xy;
+		//++counter[_write[yw]];
+		
+		++yw;
+		Write[yw].xy = Read[yw].xy == Medecine ? Healthy : Read[yw].xy;
+		//++counter[_write[yw]];
+
+		++yw;
+		Write[yw].xy = Read[yw].xy == Medecine ? Healthy : Read[yw].xy;
+		//++counter[Write[yw]];
+	}
+	// E -> M
+	else if (r == None && HasNeighbour(Medecine, x, y))
+	{
+		Write[index].xy = Medecine;
+		//++counter[Medecine];
+	}
+	else
+	{
+		//++counter[r];
+	}
+}
