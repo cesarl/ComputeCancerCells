@@ -309,7 +309,7 @@ bool App::deactivate()
 		_computeNewStateShader.release();
 		_copyOldStateShader.release();
 		_renderShader.release();
-		//ImGui::Shutdown();
+		ImGui::Shutdown();
 		SDL_GL_DeleteContext(_context);
 		SDL_DestroyWindow(_window);
 		SDL_Quit();
