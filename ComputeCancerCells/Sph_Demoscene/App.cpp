@@ -8,6 +8,9 @@
 #include <GL\glext.h>
 #include <GL\GL.h>
 
+#include "ImguiConfig.hpp"
+#include "Globals.hpp"
+
 #include <glm/glm.hpp>
 #include <glm/gtc/random.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -28,12 +31,14 @@ App::App()
 	, _totalTime(0.0f)
 	, _deltaTime(0)
 	, _pastTime(0)
-	, _width(1024)
-	, _height(640)
+	, _width(WINDOW_W)
+	, _height(WINDOW_H)
 	, _workGroupSize(128)
 	, _read(SboChannel::State1)
 	, _write(SboChannel::State2)
 	, _inject(false)
+	, _cancerPercent(30)
+	, _healthyPercent(30)
 {
 	for (auto i = 0; i < SboChannel::END; ++i)
 		_sbos[i] = 0;
@@ -57,6 +62,7 @@ void App::init()
 		_context = SDL_GL_CreateContext(_window);
 		glewInit();
 		loadShaders();
+		ImguiConf::InitImGui();
 	});
 
 }
@@ -83,7 +89,7 @@ void App::generateBuffers()
 	// READ
 	{
 		glBindBuffer(GL_SHADER_STORAGE_BUFFER, _sbos[_read]);
-		glBufferData(GL_SHADER_STORAGE_BUFFER, _width * _height * sizeof(glm::vec4), NULL, GL_STATIC_DRAW);
+		glBufferData(GL_SHADER_STORAGE_BUFFER, _width * _height * sizeof(glm::vec4), NULL, GL_STREAM_DRAW);
 
 		GLint bufMask = GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT;
 
@@ -92,14 +98,14 @@ void App::generateBuffers()
 		for (GLuint i = 0; i < _width * _height; ++i)
 		{
 		}
-		unsigned int c = _width * _height * 45 / 100;
-		unsigned int h = _width * _height * 45 / 100;
+		unsigned int c = _width * _height * _cancerPercent / 100;
+		unsigned int h = _width * _height * _healthyPercent / 100;
 		unsigned int t = _width * _height;
 		for (GLuint i = 0; i < _width * _height; ++i)
 		{
 			points[i] = glm::vec4(NONE.x, NONE.y, 0, 1);
 		}
-		srand(123123);
+
 		while (c != 0)
 		{
 			points[rand() % _width + rand() % _height * _width] = glm::vec4(CANCER.x, CANCER.y, 0,0);
@@ -117,7 +123,7 @@ void App::generateBuffers()
 	// WRITE
 	{
 		glBindBuffer(GL_SHADER_STORAGE_BUFFER, _sbos[_write]);
-		glBufferData(GL_SHADER_STORAGE_BUFFER, _width * _height * sizeof(glm::vec4), NULL, GL_STATIC_DRAW);
+		glBufferData(GL_SHADER_STORAGE_BUFFER, _width * _height * sizeof(glm::vec4), NULL, GL_STREAM_DRAW);
 
 		GLint bufMask = GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT;
 
@@ -134,7 +140,7 @@ void App::generateBuffers()
 	// POSITIONS
 	{
 		glBindBuffer(GL_SHADER_STORAGE_BUFFER, _sbos[SboChannel::Positions]);
-		glBufferData(GL_SHADER_STORAGE_BUFFER, _width * _height * sizeof(glm::vec4), NULL, GL_STATIC_DRAW);
+		glBufferData(GL_SHADER_STORAGE_BUFFER, _width * _height * sizeof(glm::vec4), NULL, GL_STREAM_DRAW);
 
 		GLint bufMask = GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT;
 
@@ -148,19 +154,46 @@ void App::generateBuffers()
 		glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
 		glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 	}
+
+	// COUNTER
+	{
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, _sbos[SboChannel::Counter]);
+		glBufferData(GL_SHADER_STORAGE_BUFFER, 4 * sizeof(unsigned int), NULL, GL_STREAM_DRAW);
+
+		GLint bufMask = GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT;
+
+		unsigned int *points = (unsigned int*)glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, 4 * sizeof(unsigned int), bufMask);
+
+		for (GLuint i = 0; i < 4; ++i)
+		{
+			points[i] = 0;
+		}
+		glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+	}
 }
 
 bool App::run()
 {
 	if (!_updateInput())
 		return false;
-
+	ImguiConf::UpdateImGui();
 	glEnable(GL_DEPTH_TEST);
 
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 	// COPY OLD STATE
 	{
+		// CLEAR COUNTER
+		{
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, _sbos[Counter]);
+			GLint bufMask = GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT;
+			unsigned int *points = (unsigned int*)glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, 4 * sizeof(unsigned int), bufMask);
+			for (std::size_t i = 0; i < 4; ++i)
+				points[i] = 0;
+			glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+		}
 
 		if (_inject)
 		{
@@ -180,6 +213,7 @@ bool App::run()
 
 		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _sbos[_read]);
 		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _sbos[_write]);
+		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _sbos[Counter]);
 
 		glDispatchCompute(_width * _height / _workGroupSize, 1, 1);
 		glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
@@ -204,6 +238,7 @@ bool App::run()
 		glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
 	}
 
+	// RENDER
 	{
 		auto *shader = _renderShader.get();
 		auto shaderId = shader->getId();
@@ -219,12 +254,48 @@ bool App::run()
 		glDisableVertexAttribArray(0);
 		glDisableVertexAttribArray(1);
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
+		glUseProgram(0);
 	}
 
 	std::swap(_read, _write);
 
-	//std::this_thread::sleep_for(std::chrono::milliseconds(500));
+	///////////////////////
+	/// GUI
 
+	// FPS
+	static float ms_per_frame[120] = { 0 };
+	static int ms_per_frame_idx = 0;
+	static float ms_per_frame_accum = 0.0f;
+	ms_per_frame_accum -= ms_per_frame[ms_per_frame_idx];
+	ms_per_frame[ms_per_frame_idx] = ImGui::GetIO().DeltaTime * 1000.0f;
+	ms_per_frame_accum += ms_per_frame[ms_per_frame_idx];
+	ms_per_frame_idx = (ms_per_frame_idx + 1) % 120;
+	const float ms_per_frame_avg = ms_per_frame_accum / 120;
+	ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", ms_per_frame_avg, 1000.0f / ms_per_frame_avg);
+
+
+	if (ImGui::SliderInt("Cancer %", &_cancerPercent, 0, 100 - _healthyPercent))
+	{
+		generateBuffers();
+	}
+	if (ImGui::SliderInt("Healthy %", &_healthyPercent, 0, 100 - _cancerPercent))
+	{
+		generateBuffers();
+	}
+
+	// Display counter
+	{
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, _sbos[Counter]);
+		GLint bufMask = GL_MAP_READ_BIT;
+		unsigned int *points = (unsigned int*)glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, 4 * sizeof(unsigned int), bufMask);
+		ImGui::Text("Healthy cells : %i", points[0]);
+		ImGui::Text("Cancer cells : %i", points[1]);
+		ImGui::Text("Medecine cells : %i", points[2]);
+		glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+	}
+
+	ImGui::Render();
 	SDL_GL_SwapWindow(_window);
 
 	return true;
@@ -238,6 +309,7 @@ bool App::deactivate()
 		_computeNewStateShader.release();
 		_copyOldStateShader.release();
 		_renderShader.release();
+		//ImGui::Shutdown();
 		SDL_GL_DeleteContext(_context);
 		SDL_DestroyWindow(_window);
 		SDL_Quit();
@@ -258,31 +330,10 @@ bool App::_updateInput()
 
 	while (SDL_PollEvent(&event))
 	{
-		static bool d = false;
-		if (event.type == SDL_MOUSEWHEEL)
-		{
-			//_cameraDistance += event.wheel.y * _zoomSpeed;
-			//if (abs(_cameraDistance) < 0.0001f)
-			//{
-			//	if (_cameraDistance < 0)
-			//		_cameraDistance = -0.0001f;
-			//	else
-			//		_cameraDistance = 0.0001f;
-			//}
-		}
-		else if (event.type == SDL_MOUSEBUTTONDOWN)
+		if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_RIGHT)
 		{
 			_inject = true;
 			_injectCoord = glm::uvec2(event.motion.x, event.motion.y);
-		}
-		else if (d)
-		{
-			_inject = true;
-		}
-		else if (event.type == SDL_MOUSEBUTTONUP)
-		{
-			d = false;
-			_inject = false;
 		}
 		else if (event.type == SDL_MOUSEMOTION)
 		{

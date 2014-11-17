@@ -5,16 +5,31 @@ layout(std430, binding = 0) buffer R
 	vec4 Read[ ];
 };
 
-
 layout(std430, binding = 1) buffer W
 {
 	vec4 Write[ ];
 };
 
+layout(std430, binding = 2) buffer C
+{
+	uint Counter[ ];
+};
+
 layout (local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+
+const vec2 Healthy = vec2(0,1);
+const vec2 Cancer = vec2(1,0);
+const vec2 Medecine = vec2(1,1);
+const vec2 None = vec2(0,0);
 
 void main()
 {
 	uint gid = gl_GlobalInvocationID.x;
 	Write[gid] = Read[gid];
+	if (Read[gid].xy == Healthy)
+		atomicAdd(Counter[0], 1);
+	if (Read[gid].xy == Cancer)
+		atomicAdd(Counter[1], 1);
+	if (Read[gid].xy == Medecine)
+		atomicAdd(Counter[2], 1);
 }

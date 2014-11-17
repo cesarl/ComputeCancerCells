@@ -10,6 +10,7 @@ enum SboChannel
 	State1 = 0
 	, State2
 	, Positions
+	, Counter
 	, END // keep at the end
 };
 
@@ -46,6 +47,9 @@ private:
 	SboChannel _write;
 	bool _inject;
 	glm::uvec2 _injectCoord;
+	int _cancerPercent;
+	int _healthyPercent;
+	float _zoom;
 
 	void _clean();
 };
